@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "prereg-cards"
+version = "0.1.0"
+description = "Pre-registered hypothesis cards + an honesty-linted verdict ledger -- the anti-p-hacking workflow, as a standalone library."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Neel Shah", email = "neeljshah22@gmail.com" }]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
