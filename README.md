@@ -5,6 +5,8 @@ standalone implementation of the anti-p-hacking workflow: **write the claim,
 the expected direction, and the expected size down BEFORE you look at the
 outcome, then let a mechanical grader (not you) decide the verdict.**
 
+This workflow comes from CourtVision, a four-sport forecasting system audited in public; the measured results and the retraction record are in its evidence index: https://github.com/neeljshah/court-vision/blob/master/EVIDENCE.md
+
 No sports, no finance, no ROI numbers. This is a general-purpose forecasting
 / experimentation discipline: it applies equally to a marketing A/B test, a
 product growth hypothesis, or a scientific claim.
@@ -87,16 +89,10 @@ underpowered), and prints honest `REJECTED` / `UNDERPOWERED` verdicts for the
 hypotheses that don't hold -- exactly what a pre-registered process is
 supposed to produce.
 
-## What this looked like at scale
+## Where this came from
 
-This library distills a pattern from a larger private system that ran
-**21,000+ pre-registered hypothesis cards** end-to-end, from registration
-through mechanical grading to a lint-checked verdict ledger. In an early
-audited batch of the first 120 graded cards, **92 were honest `REJECTED`
-verdicts** -- the pre-registration + mechanical-grading discipline did
-exactly what it is supposed to do: it let the vast majority of plausible-
-sounding hypotheses fail cleanly instead of being massaged into wins. An
-honest reject is a successful use of the process, not a failure of it.
+This library distills a pattern from a larger private system (the CourtVision registry).
+No counts from that system are claimed here; this repository ships the workflow and its tests.
 
 This repo contains no proprietary data, code, or domain logic from that
 system -- it is a clean-room, generic reimplementation of the one underlying
