@@ -1,119 +1,108 @@
 # prereg-cards
 
-Pre-registered hypothesis cards + an honesty-linted verdict ledger -- a small,
-standalone implementation of the anti-p-hacking workflow: **write the claim,
-the expected direction, and the expected size down BEFORE you look at the
-outcome, then let a mechanical grader (not you) decide the verdict.**
+Record hypothesis cards before a supplied evaluation-window timestamp, then
+append mechanical verdicts to a JSONL ledger. Writing down direction and
+magnitude first makes changes to a claim visible within this workflow.
 
-This workflow comes from CourtVision, a four-sport forecasting system audited in public; the measured results and the retraction record are in its evidence index: https://github.com/neeljshah/court-vision/blob/master/EVIDENCE.md
+The library uses only the Python standard library. It provides a local record
+and rule-based grader; it does not conduct a statistical significance test.
 
-No sports, no finance, no ROI numbers. This is a general-purpose forecasting
-/ experimentation discipline: it applies equally to a marketing A/B test, a
-product growth hypothesis, or a scientific claim.
+## Install
 
-## Why pre-registration kills p-hacking
+Requires Python 3.9 or later.
 
-The failure mode this defends against is familiar: you run an experiment,
-look at the results, notice *something* moved, and retroactively describe
-that as "what you expected all along." With enough metrics and enough
-slicing, *something* always looks significant -- that is p-hacking / the
-multiple-comparisons problem, not a discovery.
-
-The fix is mechanical, not disciplinary:
-
-1. **Register the claim before outcomes exist.** A `Card` locks the claim
-   text, the expected sign (`+`/`-`), the expected magnitude, and the
-   condition under which it should hold -- all timestamped with
-   `registered_ts`. The registry's **peek guard** refuses to register a card
-   whose `registered_ts` is after its evaluation window already opened: you
-   cannot pre-register something you already had the chance to look at.
-2. **Freeze it.** The registry is **append-only JSONL**. A card's id is a
-   content hash of its claim/sign/magnitude/condition, so a genuine edit
-   produces a new id -- the old row is untouched on disk forever. Attempting
-   to reuse an existing id with different content is refused outright
-   (`MutationError`).
-3. **Grade it mechanically.** `Grader.grade(card, observed)` compares the
-   observed sign and magnitude against what was registered and returns
-   `CONFIRMED`, `REJECTED`, or `UNDERPOWERED` (below the pre-set sample-size
-   floor). There is no free-text field that can override this -- the verdict
-   is a pure function of the two things that were locked in step 1 plus what
-   was actually measured.
-4. **Lint the ledger.** `lint_ledger()` scans every verdict row's free text
-   for inflation language ("guarantee", "edge", "roi", "profit", "proven
-   beyond", ...) and flags any `CONFIRMED` row missing the `n` / `p` fields a
-   reader would need to judge it themselves. A verdict can be mechanically
-   correct and still get written up dishonestly -- the lint is the second
-   check, not a substitute for the first.
-
-## Workflow
-
-```
-register(card)  ->  freeze (peek-guard + append-only)  ->  grade(card, observed)  ->  ledger  ->  lint
+```bash
+git clone https://github.com/neeljshah/prereg-cards.git
+cd prereg-cards
+python -m pip install -e ".[dev]"
 ```
 
-```python
-from prereg_cards import Card, CardRegistry, Grader, Observation, record_verdict
-from prereg_cards.lint import lint_ledger
+The `dev` extra installs pytest; use `-e .` for the library alone.
 
-card = Card(
-    claim="treatment A raises response vs control",
-    expected_sign="+",
-    expected_magnitude=0.4,
-    condition={"entity": "group_a", "scope": "experiment", "trigger": "signup_flow_v2",
-               "window": {"opens_ts": 1_700_000_000.0}},
-    mechanism="v2 flow removes a form field, should lift completion",
-    registered_ts=1_699_996_000.0,  # BEFORE the window opens
-)
+## Runnable example
 
-registry = CardRegistry("cards.jsonl")
-registry.register(card)                      # raises PeekGuardError if registered too late
-
-# ... time passes, the window closes, you measure what actually happened ...
-
-observed = Observation(n=412, observed_sign="+", observed_magnitude=0.31, p_value=0.02)
-verdict = Grader(n_min=30).grade(card, observed)
-record_verdict("ledger.jsonl", verdict)       # {"verdict": "REJECTED", ...} -- magnitude fell short
-
-print(lint_ledger("ledger.jsonl"))            # [] if the write-up stayed honest
-```
-
-Run the end-to-end demo (5 synthetic cards, mixed true/false hypotheses):
-
-```
+```bash
 python examples/demo_workflow.py
 ```
 
-It registers 5 cards, grades them against synthetic data where 2 have a real
-underlying effect and 2 are planted nulls (plus one deliberately
-underpowered), and prints honest `REJECTED` / `UNDERPOWERED` verdicts for the
-hypotheses that don't hold -- exactly what a pre-registered process is
-supposed to produce.
+The seeded synthetic demo has two planted effects, two null effects and one
+sample below the size floor. Its stable console output is:
 
-## Where this came from
+```text
+Synthetic demo: sign/magnitude grading only; no significance test or p-values.
+=== registering 5 cards with supplied pre-window timestamps ===
+  registered 6bd380b866f43919  'treatment A raises response vs control'
+  registered e654987e7aac0a48  'treatment B lowers response vs control'
+  registered 7f0d56b398f6b99f  'treatment C raises response vs control'
+  registered 0579dad439977e7b  'treatment D lowers response vs control'
+  registered 0c1cd511e1aaf16b  'treatment E raises response, small n'
 
-This library distills a pattern from a larger private system (the CourtVision registry).
-No counts from that system are claimed here; this repository ships the workflow and its tests.
+=== grading synthetic observations ===
+  CONFIRMED    n= 200  treatment A raises response vs control
+  CONFIRMED    n= 150  treatment B lowers response vs control
+  REJECTED     n= 200  treatment C raises response vs control
+  REJECTED     n= 150  treatment D lowers response vs control
+  UNDERPOWERED n=  10  treatment E raises response, small n
 
-This repo contains no proprietary data, code, or domain logic from that
-system -- it is a clean-room, generic reimplementation of the one underlying
-mechanism (peek-guarded pre-registration + append-only freeze + mechanical
-grading + honesty lint) using synthetic data and a domain-neutral example.
-
-## Install / test
-
+=== honesty lint on the ledger ===
+  clean: 0 violations
 ```
-pip install -e .
+
+The final two lines print the generated `cards.jsonl` and `ledger.jsonl` paths
+in a temporary directory; those paths vary on each run. The files remain there
+for inspection. Each observation records `"p": null` because no p-value was
+computed. Exit code 0 means the demo completed.
+
+## Workflow and API
+
+1. Construct a `Card` with a claim, expected sign (`+` or `-`), expected
+   magnitude, condition, mechanism and registration timestamp. Its default ID
+   hashes the claim, sign, magnitude and condition.
+2. Call `CardRegistry(path).register(card)`. The supplied registration timestamp
+   must be at or before `condition["window"]["opens_ts"]`; later values raise
+   `PeekGuardError`. An identical repeated registration is a no-op. Reusing an
+   existing ID with different content raises `MutationError`.
+3. Call `Grader(n_min=30).grade(card, observation)`. Below the sample-size floor,
+   the verdict is `UNDERPOWERED`. Otherwise, matching the expected sign and
+   reaching the expected absolute magnitude yields `CONFIRMED`; other outcomes
+   are `REJECTED`.
+4. Append the result with `record_verdict(path, row)`. Inspect it with
+   `lint_ledger(path)` or `python -m prereg_cards.lint <ledger.jsonl>`.
+
+`Observation.p_value` is optional metadata. The grader records it but does not
+use it to choose a verdict. `CONFIRMED` means the registered sign/magnitude rules
+were met, not that an effect is statistically significant. `UNDERPOWERED` means
+only that `n` is below the configured floor; it is not a power calculation.
+
+## Scope and limits
+
+- Timestamps are **caller assertions**, not a trusted external timestamp
+  authority. The library does not check the wall clock or prove that a caller
+  had not already seen outcomes.
+- The registry appends through its API. It does not prevent direct file edits,
+  authenticate authors or coordinate concurrent writers. Preserve an external
+  audit record when tamper evidence is required.
+- The default content ID excludes the mechanism and registration timestamp.
+  `mark_peeked` appends a row marking outcomes as viewed; readers return the
+  latest row for each ID.
+- The linter checks configured wording and required fields. It permits a null
+  `p` field and does not validate the underlying experiment, statistical test
+  or truth of a claim. A clean lint result is not evidence of an effect.
+
+## Tests
+
+```bash
 python -m pytest tests/test_registry.py -q
 ```
 
-Stdlib only. No network calls, no external dependencies for the library
-itself (`pytest` is a dev-only extra for running the tests).
+The 14 tests cover content IDs, registration and readback, repeated and forged
+registrations, the supplied-timestamp guard, grading and ledger lint. GitHub
+Actions runs this file with a two-minute test timeout.
 
-## Author
+## Context and license
 
-Neel Shah -- [neeljshah22@gmail.com](mailto:neeljshah22@gmail.com) --
-[github.com/neeljshah](https://github.com/neeljshah)
+[The CourtVision evidence site](https://neeljshah.github.io/court-vision/)
+contains the forecasting results and public retraction record. Its moneyline
+models land near the devigged close without beating it; totals and tennis trail.
 
-## License
-
-MIT, see [LICENSE](LICENSE).
+[MIT](LICENSE), copyright Neel Shah 2026.
