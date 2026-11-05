@@ -1,8 +1,8 @@
 """Demo: register 5 hypothesis cards on synthetic data, freeze, grade, lint.
 
-Two cards are TRUE effects, three are FALSE (planted null hypotheses) --
-the honest workflow should REJECT the false ones instead of finding a way
-to call them wins. Run:
+Two cards have planted effects, two have null effects, and one is too small
+for the sample-size floor. Grading uses sign and magnitude only; no statistical
+significance test is performed and no p-values are supplied. Run:
 
     python examples/demo_workflow.py
 """
@@ -20,7 +20,7 @@ from prereg_cards import Card, CardRegistry, Grader, Observation, record_verdict
 from prereg_cards.lint import lint_ledger
 
 WINDOW_OPENS = 1_000_000.0  # epoch seconds the evaluation window opens
-REGISTERED_AT = WINDOW_OPENS - 3600  # registered 1h before the window -- honest
+REGISTERED_AT = WINDOW_OPENS - 3600  # supplied timestamp in the synthetic example
 
 
 def make_card(claim: str, sign: str, magnitude: float, entity: str, trigger: str) -> Card:
@@ -44,10 +44,11 @@ def synthetic_observation(true_effect: float, n: int, seed: int) -> Observation:
     samples = [true_effect + rng.gauss(0, 1.0) for _ in range(n)]
     mean = statistics.mean(samples)
     sign = "+" if mean >= 0 else "-"
-    return Observation(n=n, observed_sign=sign, observed_magnitude=abs(mean), p_value=0.03)
+    return Observation(n=n, observed_sign=sign, observed_magnitude=abs(mean), p_value=None)
 
 
 def main() -> None:
+    print("Synthetic demo: sign/magnitude grading only; no significance test or p-values.")
     tmp = Path(tempfile.mkdtemp(prefix="prereg_demo_"))
     cards_path = tmp / "cards.jsonl"
     ledger_path = tmp / "ledger.jsonl"
@@ -55,7 +56,7 @@ def main() -> None:
     grader = Grader(n_min=30)
 
     # (claim, expected_sign, expected_magnitude, true_effect, n) -- true_effect
-    # is what actually generates the data; three are planted nulls (0.0).
+    # is what generates the data; two are planted nulls (0.0).
     specs = [
         ("treatment A raises response vs control", "+", 0.4, 0.5, 200),   # true effect
         ("treatment B lowers response vs control", "-", 0.3, -0.35, 150), # true effect
@@ -64,7 +65,7 @@ def main() -> None:
         ("treatment E raises response, small n", "+", 0.4, 0.5, 10),      # underpowered
     ]
 
-    print("=== registering 5 pre-registered cards (before outcomes exist) ===")
+    print("=== registering 5 cards with supplied pre-window timestamps ===")
     cards = []
     for i, (claim, sign, mag, _, _) in enumerate(specs):
         card = make_card(claim, sign, mag, entity=f"group_{i}", trigger="synthetic_trigger")
@@ -72,7 +73,7 @@ def main() -> None:
         cards.append(card)
         print(f"  registered {card.card_id}  {claim!r}")
 
-    print("\n=== grading against observed data (window now closed) ===")
+    print("\n=== grading synthetic observations ===")
     for i, (card, (_, _, _, true_effect, n)) in enumerate(zip(cards, specs)):
         observed = synthetic_observation(true_effect, n, seed=i)
         verdict_row = grader.grade(card, observed)
